@@ -5,8 +5,6 @@
 #include <cmath>
 #include <cctype>
 #include <random>
-#include <chrono>
-#include <limits>
 #include <omp.h>
 #include <sstream>
 
@@ -18,50 +16,58 @@ struct Token {
     Token(TokenType t, const std::string& v) : type(t), value(v) {}
 };
 
-// Tokenizer
 std::vector<Token> tokenize(const std::string& expr) {
     std::vector<Token> tokens;
     size_t i = 0;
     while (i < expr.length()) {
         char c = expr[i];
+
         if (isspace(c)) { ++i; continue; }
+
         if (isdigit(c) || c == '.') {
             std::string num;
             while (i < expr.length() && (isdigit(expr[i]) || expr[i] == '.')) num += expr[i++];
             tokens.emplace_back(TokenType::Number, num);
-        } else if (isalpha(c)) {
+        }
+        else if (isalpha(c)) {
             std::string name;
             while (i < expr.length() && isalpha(expr[i])) name += expr[i++];
-            if (name == "x") tokens.emplace_back(TokenType::Variable, name);
-            else tokens.emplace_back(TokenType::Function, name);
-        } else if (std::string("+-*/^").find(c) != std::string::npos) {
+            if (name == "sin" || name == "cos" || name == "log" || name == "ln" || name == "exp" || name == "sqrt")
+                tokens.emplace_back(TokenType::Function, name);
+            else
+                tokens.emplace_back(TokenType::Variable, name);
+        }
+        else if (std::string("+-*/^").find(c) != std::string::npos) {
             tokens.emplace_back(TokenType::Operator, std::string(1, c));
             ++i;
-        } else if (c == '(') {
+        }
+        else if (c == '(') {
             tokens.emplace_back(TokenType::LeftParen, "(");
             ++i;
-        } else if (c == ')') {
+        }
+        else if (c == ')') {
             tokens.emplace_back(TokenType::RightParen, ")");
             ++i;
-        } else {
+        }
+        else {
             throw std::runtime_error(std::string("Invalid character: ") + c);
         }
     }
+
     return tokens;
 }
 
-// Precedence and associativity
 int precedence(const std::string& op) {
     if (op == "+" || op == "-") return 1;
     if (op == "*" || op == "/") return 2;
     if (op == "^") return 3;
     return 0;
 }
+
 bool is_right_associative(const std::string& op) {
     return op == "^";
 }
 
-// Infix to postfix (Shunting Yard Algorithm)
 std::vector<Token> to_postfix(const std::vector<Token>& tokens) {
     std::vector<Token> output;
     std::stack<Token> stack;
@@ -69,22 +75,24 @@ std::vector<Token> to_postfix(const std::vector<Token>& tokens) {
     for (const auto& token : tokens) {
         if (token.type == TokenType::Number || token.type == TokenType::Variable) {
             output.push_back(token);
-        } else if (token.type == TokenType::Function) {
+        }
+        else if (token.type == TokenType::Function) {
             stack.push(token);
-        } else if (token.type == TokenType::Operator) {
-            while (!stack.empty() && (
-                (stack.top().type == TokenType::Function) ||
-                (stack.top().type == TokenType::Operator &&
-                ((precedence(stack.top().value) > precedence(token.value)) ||
-                (precedence(stack.top().value) == precedence(token.value) &&
-                 !is_right_associative(token.value))))) ) {
+        }
+        else if (token.type == TokenType::Operator) {
+            while (!stack.empty() && stack.top().type == TokenType::Operator &&
+                   ((precedence(stack.top().value) > precedence(token.value)) ||
+                    (precedence(stack.top().value) == precedence(token.value) &&
+                     !is_right_associative(token.value)))) {
                 output.push_back(stack.top());
                 stack.pop();
             }
             stack.push(token);
-        } else if (token.type == TokenType::LeftParen) {
+        }
+        else if (token.type == TokenType::LeftParen) {
             stack.push(token);
-        } else if (token.type == TokenType::RightParen) {
+        }
+        else if (token.type == TokenType::RightParen) {
             while (!stack.empty() && stack.top().type != TokenType::LeftParen) {
                 output.push_back(stack.top());
                 stack.pop();
@@ -107,146 +115,253 @@ std::vector<Token> to_postfix(const std::vector<Token>& tokens) {
     return output;
 }
 
-// Postfix evaluator (templated)
 template<typename T>
-T evaluate_postfix(const std::vector<Token>& postfix, T x_val) {
+T evaluate_postfix(const std::vector<Token>& postfix, T x_val, T y_val) {
     std::stack<T> stack;
     for (const auto& token : postfix) {
         if (token.type == TokenType::Number) {
             stack.push(static_cast<T>(std::stold(token.value)));
         } else if (token.type == TokenType::Variable) {
-            stack.push(x_val);
+            if (token.value == "x") stack.push(x_val);
+            else if (token.value == "y") stack.push(y_val);
+            else throw std::runtime_error("Unknown variable: " + token.value);
         } else if (token.type == TokenType::Operator) {
             T b = stack.top(); stack.pop();
             T a = stack.top(); stack.pop();
             if (token.value == "+") stack.push(a + b);
             else if (token.value == "-") stack.push(a - b);
             else if (token.value == "*") stack.push(a * b);
-            else if (token.value == "/") stack.push(a / b);
+            else if (token.value == "/") { if (b == 0) throw std::runtime_error("Div by 0"); stack.push(a / b); }
             else if (token.value == "^") stack.push(std::pow(a, b));
         } else if (token.type == TokenType::Function) {
             T a = stack.top(); stack.pop();
             if (token.value == "sin") stack.push(std::sin(a));
             else if (token.value == "cos") stack.push(std::cos(a));
-            else if (token.value == "log") stack.push(std::log10(a));
-            else if (token.value == "ln") stack.push(std::log(a));
+            else if (token.value == "log") { if (a <= 0) throw std::runtime_error("Log domain"); stack.push(std::log10(a)); }
+            else if (token.value == "ln") { if (a <= 0) throw std::runtime_error("Ln domain"); stack.push(std::log(a)); }
             else if (token.value == "exp") stack.push(std::exp(a));
-            else if (token.value == "sqrt") stack.push(std::sqrt(a));
-            else throw std::runtime_error("Unknown function: " + token.value);
+            else if (token.value == "sqrt") { if (a < 0) throw std::runtime_error("Sqrt domain"); stack.push(std::sqrt(a)); }
         }
     }
     return stack.top();
 }
 
-// Precision types
 enum class Precision { Float, Double, LongDouble };
 
-// Heuristic precision selector
-Precision select_precision(long double avg_val, long double grad, long double var, double tolerance) {
+Precision select_precision(long double avg, long double grad, long double var, double tol) {
     if (var > 1e3 || grad > 1e2) return Precision::LongDouble;
-    if (avg_val > 1e3 || var > 1e1 || grad > 1e1) return Precision::Double;
-    if (tolerance < 1e-5) return Precision::Float;
+    if (avg > 1e3 || var > 1e1 || grad > 1e1) return Precision::Double;
+    if (tol < 1e-5) return Precision::Double;
     return Precision::Float;
 }
 
-// Monte Carlo integration for templated type
 template<typename T>
-T monte_carlo_integrate(size_t samples, T a, T b, const std::vector<Token>& postfix) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<double> dist(static_cast<double>(a), static_cast<double>(b));
+T monte_carlo_integrate_2d(size_t samples, T a, T b, T c, T d, const std::vector<Token>& postfix) {
     T sum = 0;
-
-    #pragma omp parallel
+    #pragma omp parallel default(none) shared(samples, a, b, c, d, postfix, sum)
     {
+        std::random_device rd;
+        std::mt19937 gen(rd() + omp_get_thread_num());
+        std::uniform_real_distribution<T> dist_x(a, b);
+        std::uniform_real_distribution<T> dist_y(c, d);
         T local_sum = 0;
+
         #pragma omp for
         for (size_t i = 0; i < samples; ++i) {
-            T x = static_cast<T>(dist(gen));
-            T val = evaluate_postfix<T>(postfix, x);
-            local_sum += val;
+            T x = dist_x(gen);
+            T y = dist_y(gen);
+            try {
+                local_sum += evaluate_postfix<T>(postfix, x, y);
+            } catch (...) {}
         }
-        #pragma omp critical
+
+        #pragma omp atomic
         sum += local_sum;
     }
-
-    return (b - a) * sum / samples;
+    T area = (b - a) * (d - c);
+    return area * sum / samples;
 }
 
-// Average value over interval
-long double average_value(const std::vector<Token>& postfix, long double a, long double b) {
+long double average_value(const std::vector<Token>& postfix, long double a, long double b, long double c, long double d) {
+    const int N = 10;
     long double sum = 0;
-    for (int i = 0; i < 100; ++i) {
-        long double x = a + (b - a) * i / 99.0;
-        sum += std::abs(evaluate_postfix<long double>(postfix, x));
+    int valid = 0;
+
+    #pragma omp parallel for reduction(+:sum,valid) collapse(2)
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            long double x = a + (b - a) * i / (N - 1.0);
+            long double y = c + (d - c) * j / (N - 1.0);
+            try {
+                sum += std::abs(evaluate_postfix<long double>(postfix, x, y));
+                valid++;
+            } catch (...) {}
+        }
     }
-    return sum / 100.0;
+    return valid ? sum / valid : 0;
 }
 
-// Variance estimator
-long double estimate_variance(const std::vector<Token>& postfix, long double a, long double b, size_t samples) {
+long double estimate_variance(const std::vector<Token>& postfix, long double a, long double b, long double c, long double d, size_t samples) {
+    samples = std::min(samples, static_cast<size_t>(1000));
     long double sum = 0, sum_sq = 0;
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<long double> dist(a, b);
+    int valid = 0;
 
-    for (size_t i = 0; i < samples; ++i) {
-        long double x = dist(gen);
-        long double val = evaluate_postfix<long double>(postfix, x);
-        sum += val;
-        sum_sq += val * val;
+    #pragma omp parallel default(none) shared(postfix, a, b, c, d, samples) reduction(+:sum, sum_sq, valid)
+    {
+        std::random_device rd;
+        std::mt19937 gen(rd() + omp_get_thread_num());
+        std::uniform_real_distribution<long double> dist_x(a, b);
+        std::uniform_real_distribution<long double> dist_y(c, d);
+
+        #pragma omp for
+        for (size_t i = 0; i < samples; ++i) {
+            long double x = dist_x(gen);
+            long double y = dist_y(gen);
+            try {
+                long double val = evaluate_postfix<long double>(postfix, x, y);
+                sum += val;
+                sum_sq += val * val;
+                valid++;
+            } catch (...) {}
+        }
     }
-    long double mean = sum / samples;
-    return (sum_sq / samples) - (mean * mean);
+    if (valid < 2) return 0;
+    long double mean = sum / valid;
+    return (sum_sq / valid) - (mean * mean);
 }
 
-// Gradient approximation
-long double estimate_gradient(const std::vector<Token>& postfix, long double a, long double b) {
-    long double delta = (b - a) / 100.0;
-    return std::abs(evaluate_postfix<long double>(postfix, b) - evaluate_postfix<long double>(postfix, a)) / delta;
+long double estimate_gradient(const std::vector<Token>& postfix, long double a, long double b, long double c, long double d) {
+    const int N = 10;
+    long double max_grad = 0;
+
+    #pragma omp parallel for reduction(max:max_grad) collapse(2)
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            long double x = a + (b - a) * i / (N - 1.0);
+            long double y = c + (d - c) * j / (N - 1.0);
+            try {
+                long double fx = evaluate_postfix<long double>(postfix, x, y);
+                if (i < N-1) {
+                    long double x_next = a + (b - a) * (i+1) / (N - 1.0);
+                    long double fx_next = evaluate_postfix<long double>(postfix, x_next, y);
+                    long double grad_x = std::abs((fx_next - fx) / (x_next - x));
+                    max_grad = std::max(max_grad, grad_x);
+                }
+                if (j < N-1) {
+                    long double y_next = c + (d - c) * (j+1) / (N - 1.0);
+                    long double fy_next = evaluate_postfix<long double>(postfix, x, y_next);
+                    long double grad_y = std::abs((fy_next - fx) / (y_next - y));
+                    max_grad = std::max(max_grad, grad_y);
+                }
+            } catch (...) {}
+        }
+    }
+    return max_grad;
+}
+
+std::vector<std::string> split_expression(const std::string& expr) {
+    std::vector<std::string> terms;
+    std::string current;
+    int paren = 0;
+    for (char c : expr) {
+        if (c == '(') paren++;
+        if (c == ')') paren--;
+        if (c == '+' && paren == 0) {
+            terms.push_back(current);
+            current.clear();
+        } else {
+            current += c;
+        }
+    }
+    if (!current.empty()) terms.push_back(current);
+    return terms;
 }
 
 int main() {
-    std::cout << "Mixed Precision Monte Carlo Integration for Subexpressions\n";
+    std::cout << "Mixed Precision Monte Carlo Double Integration for Subexpressions\n";
 
     std::string expr;
-    long double a, b;
+    long double a, b, c, d;
     size_t samples;
     double tolerance = 1e-4;
 
-    std::cout << "Function (e.g., x^2 + 2*x + 1): ";
-    std::getline(std::cin, expr);    
-    std::cout << "Upper bound b: "; std::cin >> b;
-    std::cout << "Lower bound a: "; std::cin >> a;
+    std::cout << "Function (e.g., x*y + sin(x) + cos(y)): ";
+    std::getline(std::cin, expr);
+    std::cout << "Lower bound for x (a): "; std::cin >> a;
+    std::cout << "Upper bound for x (b): "; std::cin >> b;
+    std::cout << "Lower bound for y (c): "; std::cin >> c;
+    std::cout << "Upper bound for y (d): "; std::cin >> d;
     std::cout << "Number of samples: "; std::cin >> samples;
     std::cin.ignore();
 
-    std::stringstream ss(expr);
-    std::string term;
-    long double total = 0.0;
+    if (a > b) std::swap(a, b);
+    if (c > d) std::swap(c, d);
+    auto terms = split_expression(expr);
 
-    while (std::getline(ss, term, '+')) {
-        auto tokens = tokenize(term);
-        auto postfix = to_postfix(tokens);
-        long double avg = average_value(postfix, a, b);
-        long double grad = estimate_gradient(postfix, a, b);
-        long double var = estimate_variance(postfix, a, b, samples);
+    long double total_parallel = 0;
+    long double total_serial = 0;
 
-        Precision p = select_precision(avg, grad, var, tolerance);
-        std::cout << "Subexpression: \"" << term << "\" | Precision: ";
+    omp_set_num_threads(6);
+    std::cout << "\n--- Starting Parallel Integration ["<<omp_get_max_threads()<<"]---\n";
+    double start_parallel = omp_get_wtime();
+    for (const auto& term : terms) {
+        try {
+            auto postfix = to_postfix(tokenize(term));
+            long double avg = average_value(postfix, a, b, c, d);
+            long double grad = estimate_gradient(postfix, a, b, c, d);
+            long double var = estimate_variance(postfix, a, b, c, d, samples);
 
-        if (p == Precision::Float) {
-            std::cout << "float\n";
-            total += monte_carlo_integrate<float>(samples, (float)a, (float)b, postfix);
-        } else if (p == Precision::Double) {
-            std::cout << "double\n";
-            total += monte_carlo_integrate<double>(samples, (double)a, (double)b, postfix);
-        } else {
-            std::cout << "long double\n";
-            total += monte_carlo_integrate<long double>(samples, a, b, postfix);
+            Precision p = select_precision(avg, grad, var, tolerance);
+            std::cout << "Subexpression: \"" << term << "\" | Precision: ";
+
+            double sub_start = omp_get_wtime();
+            if (p == Precision::Float) {
+                std::cout << "float";
+                total_parallel += monte_carlo_integrate_2d<float>(samples, a, b, c, d, postfix);
+            } else if (p == Precision::Double) {
+                std::cout << "double";
+                total_parallel += monte_carlo_integrate_2d<double>(samples, a, b, c, d, postfix);
+            } else {
+                std::cout << "long double";
+                total_parallel += monte_carlo_integrate_2d<long double>(samples, a, b, c, d, postfix);
+            }
+            double sub_end = omp_get_wtime();
+            std::cout << " | Time: " << (sub_end - sub_start) << " sec\n";
+
+        } catch (const std::exception& e) {
+            std::cerr << "Error in term \"" << term << "\": " << e.what() << "\n";
         }
     }
+    double end_parallel = omp_get_wtime();
+    double parallel_time = end_parallel - start_parallel;
 
-    std::cout << "\nTotal integral result ≈ " << total << "\n";
+    std::cout << "\n--- Starting Serial Integration (1 thread) ---\n";
+    omp_set_num_threads(1);
+    double start_serial = omp_get_wtime();
+    for (const auto& term : terms) {
+        try {
+            auto postfix = to_postfix(tokenize(term));
+            long double avg = average_value(postfix, a, b, c, d);
+            long double grad = estimate_gradient(postfix, a, b, c, d);
+            long double var = estimate_variance(postfix, a, b, c, d, samples);
+
+            Precision p = select_precision(avg, grad, var, tolerance);
+            if (p == Precision::Float) {
+                total_serial += monte_carlo_integrate_2d<float>(samples, a, b, c, d, postfix);
+            } else if (p == Precision::Double) {
+                total_serial += monte_carlo_integrate_2d<double>(samples, a, b, c, d, postfix);
+            } else {
+                total_serial += monte_carlo_integrate_2d<long double>(samples, a, b, c, d, postfix);
+            }
+        } catch (...) {}
+    }
+    double end_serial = omp_get_wtime();
+    double serial_time = end_serial - start_serial;
+
+    std::cout << "\n=== Results ===\n";
+    std::cout << "Parallel Result ≈ " << total_parallel << " | Time: " << parallel_time << " sec\n";
+    std::cout << "Serial Result   ≈ " << total_serial << " | Time: " << serial_time << " sec\n";
+    std::cout << "Speedup         ≈ " << (serial_time / parallel_time) << "x\n";
+    
     return 0;
 }
