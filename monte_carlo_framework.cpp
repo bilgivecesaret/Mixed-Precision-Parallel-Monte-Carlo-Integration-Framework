@@ -5,8 +5,11 @@
 #include <cmath>
 #include <cctype>
 #include <random>
+#include <chrono>
+#include <limits>
 #include <omp.h>
 #include <sstream>
+#include <mutex>
 
 enum class TokenType { Number, Operator, Function, Variable, LeftParen, RightParen };
 
@@ -38,7 +41,22 @@ std::vector<Token> tokenize(const std::string& expr) {
                 tokens.emplace_back(TokenType::Variable, name);
         }
         else if (std::string("+-*/^").find(c) != std::string::npos) {
-            tokens.emplace_back(TokenType::Operator, std::string(1, c));
+            // Handle unary minus/plus
+            if ((c == '-' || c == '+') && (i == 0 || 
+                (i > 0 && (expr[i-1] == '(' || 
+                 std::string("+-*/^").find(expr[i-1]) != std::string::npos)))) {
+                
+                if (c == '-') {
+                    // Insert 0 before unary minus to handle it as binary operation (0-x)
+                    tokens.emplace_back(TokenType::Number, "0");
+                }
+                // For unary plus, we can just skip it
+                if (c == '-') {
+                    tokens.emplace_back(TokenType::Operator, std::string(1, c));
+                }
+            } else {
+                tokens.emplace_back(TokenType::Operator, std::string(1, c));
+            }
             ++i;
         }
         else if (c == '(') {
@@ -263,17 +281,49 @@ std::vector<std::string> split_expression(const std::string& expr) {
     std::vector<std::string> terms;
     std::string current;
     int paren = 0;
-    for (char c : expr) {
+    
+    for (size_t i = 0; i < expr.length(); ++i) {
+        char c = expr[i];
+        
         if (c == '(') paren++;
-        if (c == ')') paren--;
-        if (c == '+' && paren == 0) {
-            terms.push_back(current);
-            current.clear();
-        } else {
-            current += c;
+        else if (c == ')') paren--;
+        
+        // Check for +/- operators that are not inside parentheses
+        if ((c == '+' || c == '-') && paren == 0) {
+            // Skip if this is the first character or after another operator (unary operator)
+            bool is_binary_operator = (i > 0);
+            
+            if (is_binary_operator) {
+                char prev = expr[i-1];
+                // Check if previous char is an operator or left parenthesis (making this a unary + or -)
+                if (prev == '+' || prev == '-' || prev == '*' || prev == '/' || prev == '^' || prev == '(' || prev == 'e' || prev == 'E') {
+                    is_binary_operator = false;  // This is likely a sign or part of scientific notation
+                }
+            }
+            
+            if (is_binary_operator) {
+                if (!current.empty()) {
+                    terms.push_back(current);
+                    current.clear();
+                }
+                
+                // If it's a minus sign, we add it to the next term
+                if (c == '-') {
+                    current += c;
+                }
+                // We skip the + sign as it's implied between terms
+                continue;
+            }
         }
+        
+        // Add the character to the current term
+        current += c;
     }
-    if (!current.empty()) terms.push_back(current);
+    
+    if (!current.empty()) {
+        terms.push_back(current);
+    }
+    
     return terms;
 }
 
@@ -283,7 +333,7 @@ int main() {
     std::string expr;
     long double a, b, c, d;
     size_t samples;
-    double tolerance = 1e-4;
+    double tolerance = 1e-5;
 
     std::cout << "Function (e.g., x*y + sin(x) + cos(y)): ";
     std::getline(std::cin, expr);
@@ -362,6 +412,6 @@ int main() {
     std::cout << "Parallel Result ≈ " << total_parallel << " | Time: " << parallel_time << " sec\n";
     std::cout << "Serial Result   ≈ " << total_serial << " | Time: " << serial_time << " sec\n";
     std::cout << "Speedup         ≈ " << (serial_time / parallel_time) << "x\n";
-    
+
     return 0;
 }
