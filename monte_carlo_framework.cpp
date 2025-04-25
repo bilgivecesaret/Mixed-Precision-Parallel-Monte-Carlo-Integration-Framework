@@ -193,13 +193,15 @@ Precision select_precision(long double avg, long double grad, long double var, d
 template<typename T>
 T monte_carlo_integrate_2d(size_t samples, T a, T b, T c, T d, const std::vector<Token>& postfix) {
     T sum = 0;
-    #pragma omp parallel default(none) shared(samples, a, b, c, d, postfix, sum)
+    size_t valid_samples = 0;
+    #pragma omp parallel default(none) shared(samples, a, b, c, d, postfix, sum, valid_samples)
     {
         std::random_device rd;
         std::mt19937 gen(rd() + omp_get_thread_num());
         std::uniform_real_distribution<T> dist_x(a, b);
         std::uniform_real_distribution<T> dist_y(c, d);
         T local_sum = 0;
+        size_t local_valid = 0;
 
         #pragma omp for
         for (size_t i = 0; i < samples; ++i) {
@@ -207,14 +209,18 @@ T monte_carlo_integrate_2d(size_t samples, T a, T b, T c, T d, const std::vector
             T y = dist_y(gen);
             try {
                 local_sum += evaluate_postfix<T>(postfix, x, y);
+                local_valid++;
             } catch (...) {}
         }
 
         #pragma omp atomic
         sum += local_sum;
+        #pragma omp atomic
+        valid_samples += local_valid;
     }
+    if (valid_samples == 0) return 0;
     T area = (b - a) * (d - c);
-    return area * sum / samples;
+    return area * sum / valid_samples; // Use valid_samples instead of samples
 }
 
 long double average_value(const std::vector<Token>& postfix, long double a, long double b, long double c, long double d) {
