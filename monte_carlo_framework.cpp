@@ -175,8 +175,8 @@ Precision select_precision(long double avg, long double grad, long double var, d
     long double max_val = std::max(std::abs(avg + std::sqrt(var)), std::abs(avg - std::sqrt(var)));
 
     // Normalize: To avoid distorting the error estimate by using very small values.
-    max_val = std::max(max_val, 1.0L);  // Don't let very small values ​​distort the error estimate.
-    grad = std::max(grad, 1.0L);    // If the gradient is almost zero, the minimum error estimate can still be made.
+    max_val = std::max(max_val, static_cast<long double>(tol));  // Don't let very small values ​​distort the error estimate.
+    grad = std::max(grad, static_cast<long double>(tol));    // If the gradient is almost zero, the minimum error estimate can still be made.
 
 
     // Estimate error as epsilon * max gradient * scale
