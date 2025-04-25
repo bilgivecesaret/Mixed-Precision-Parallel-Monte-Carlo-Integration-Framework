@@ -167,10 +167,22 @@ T evaluate_postfix(const std::vector<Token>& postfix, T x_val, T y_val) {
 enum class Precision { Float, Double, LongDouble };
 
 Precision select_precision(long double avg, long double grad, long double var, double tol) {
-    if (var > 1e3 || grad > 1e2) return Precision::LongDouble;
-    if (avg > 1e3 || var > 1e1 || grad > 1e1) return Precision::Double;
-    if (tol < 1e-5) return Precision::Double;
-    return Precision::Float;
+    const long double eps_float = std::numeric_limits<float>::epsilon();
+    const long double eps_double = std::numeric_limits<double>::epsilon();
+    const long double eps_long_double = std::numeric_limits<long double>::epsilon();
+
+    // Estimate max function value
+    long double max_val = std::max(std::abs(avg + std::sqrt(var)), std::abs(avg - std::sqrt(var)));
+
+    // Estimate error as epsilon * max gradient * scale
+    long double error_float = eps_float * max_val * grad;
+    long double error_double = eps_double * max_val * grad;
+    long double error_long_double = eps_long_double * max_val * grad;
+
+    // Compare estimated relative error with tolerance
+    if (error_float <= tol) return Precision::Float;
+    if (error_double <= tol) return Precision::Double;
+    return Precision::LongDouble;
 }
 
 template<typename T>
