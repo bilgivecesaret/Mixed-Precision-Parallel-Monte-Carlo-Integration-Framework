@@ -28,8 +28,11 @@ quadrature methods for multi-dimensional integrals, leveraging the strengths of 
 (Giles, 2015).</p>
 
 
-# Required Compiler Settings
+# Required Compiler Settings for OpenMP 
 g++ -fopenmp monte_carlo_framework.cpp -o monte_carlo
+
+# Required Compiler Settings for CUDA
+nvcc monte_carlo_Cuda.cu -o monte_carlo 
 
 # Run Command
 ./monte_carlo
